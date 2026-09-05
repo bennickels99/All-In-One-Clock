@@ -9,9 +9,6 @@ Live Activity countdowns). AlarmKit is iOS-only, so the watch relays requests to
 
 ### Confirmed decisions
 - **iOS 26-only** (full AlarmKit, no availability branching). Watch = watchOS 26.
-  ⚠️ Note: user earlier mentioned wanting previous-iOS support; this plan assumes 26-only per their
-  explicit choice. If revived, gate AlarmKit behind `if #available(iOS 26, *)` with a
-  local-notification fallback on older iOS.
 - **Both Alarms and Timers** go through AlarmKit on iPhone. **Stopwatch + World Clock stay local on
   the watch**, fully independent.
 - **Offline fallback:** when the iPhone is unreachable, the watch schedules its own local
