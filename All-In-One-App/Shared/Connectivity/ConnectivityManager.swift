@@ -19,6 +19,14 @@ final class ConnectivityManager: NSObject, WCSessionDelegate {
 
     // Incoming messages are always dispatched to this handler on the MainActor.
     var messageHandler: ((ClockMessage) -> Void)?
+    // Called on the MainActor when WCSession reachability changes.
+    var reachabilityHandler: ((Bool) -> Void)?
+
+    var isReachable: Bool {
+        WCSession.isSupported()
+            && WCSession.default.activationState == .activated
+            && WCSession.default.isReachable
+    }
 
     private override init() { super.init() }
 
@@ -76,6 +84,12 @@ final class ConnectivityManager: NSObject, WCSessionDelegate {
         session.activate()
     }
 #endif
+
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
+        Task { @MainActor [weak self] in
+            self?.reachabilityHandler?(session.isReachable)
+        }
+    }
 
     // MARK: - Inbound routing
 
