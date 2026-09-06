@@ -8,7 +8,6 @@
 //
 
 import AlarmKit
-import WatchConnectivity
 import SwiftUI
 
 @MainActor
@@ -130,22 +129,11 @@ final class AlarmKitCoordinator {
         }
     }
 
-    // MARK: - Watch sync (Phase 4 will route through ConnectivityManager)
+    // MARK: - Watch sync
 
     func pushStateToWatch() {
-        guard WCSession.isSupported() else { return }
-        let session = WCSession.default
-        // isPaired / isWatchAppInstalled are only reliable after the session is
-        // activated. Before Phase 4 wires ConnectivityManager, the session is
-        // inactive and these properties return false — so this guard safely
-        // no-ops rather than pushing stale/empty context. Phase 4 activation
-        // makes the push live.
-        guard session.activationState == .activated,
-              session.isPaired,
-              session.isWatchAppInstalled else { return }
         let state = ClockState(alarms: alarms, timers: timers)
-        guard let payload = try? ClockMessage.stateSync(state).encodedPayload() else { return }
-        try? session.updateApplicationContext(payload)
+        ConnectivityManager.shared.updateContext(.stateSync(state))
     }
 
     // MARK: - Weekday conversion (Calendar 1=Sun…7=Sat → Locale.Weekday)
