@@ -35,7 +35,9 @@ enum ClockMessage: Codable, Hashable, Sendable {
 extension ClockMessage {
     /// The dictionary key under which the encoded message travels inside a
     /// WatchConnectivity payload (`sendMessage` / `transferUserInfo` / context).
-    static let payloadKey = "clockMessage"
+    /// Marked nonisolated so it is accessible from any concurrency context,
+    /// including WCSession's background queue.
+    nonisolated static let payloadKey = "clockMessage"
 
     /// Encodes the message into a `[String: Any]` payload suitable for
     /// `WCSession`. WatchConnectivity only accepts property-list types, so the
@@ -43,17 +45,5 @@ extension ClockMessage {
     func encodedPayload() throws -> [String: Any] {
         let data = try JSONEncoder().encode(self)
         return [ClockMessage.payloadKey: data]
-    }
-
-    /// Reconstructs a message from a received WatchConnectivity payload.
-    /// Returns `nil` if the payload does not contain a clock message.
-    /// Marked nonisolated because this is pure JSON decoding on a Sendable value
-    /// type — it is safe to call from any actor, including WCSession's background queue.
-    nonisolated init?(payload: [String: Any]) {
-        guard let data = payload[ClockMessage.payloadKey] as? Data,
-              let message = try? JSONDecoder().decode(ClockMessage.self, from: data) else {
-            return nil
-        }
-        self = message
     }
 }

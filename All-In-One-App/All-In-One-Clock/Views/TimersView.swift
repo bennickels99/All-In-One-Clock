@@ -16,9 +16,8 @@ struct TimersView: View {
                     TimerRow(timer: timer)
                 }
                 .onDelete { offsets in
-                    for index in offsets {
-                        try? coordinator.cancel(id: coordinator.timers[index].id)
-                    }
+                    let ids = offsets.map { coordinator.timers[$0].id }
+                    for id in ids { try? coordinator.cancel(id: id) }
                 }
             }
             .navigationTitle("Timers")
@@ -43,11 +42,20 @@ private struct TimerRow: View {
     @Environment(AlarmKitCoordinator.self) private var coordinator
     let timer: CountdownTimer
 
+    private var fireDate: Date { timer.createdAt.addingTimeInterval(timer.duration) }
+
     var body: some View {
         HStack {
             VStack(alignment: .leading) {
-                Text(durationString(timer.duration))
-                    .font(.title3.monospacedDigit())
+                Group {
+                    if fireDate > .now {
+                        Text(timerInterval: Date.now...fireDate, countsDown: true)
+                    } else {
+                        Text("Finished")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.title3.monospacedDigit())
                 if !timer.label.isEmpty {
                     Text(timer.label)
                         .font(.subheadline)
@@ -63,15 +71,6 @@ private struct TimerRow: View {
             }
             .buttonStyle(.plain)
         }
-    }
-
-    private func durationString(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%d:%02d", m, s)
     }
 }
 

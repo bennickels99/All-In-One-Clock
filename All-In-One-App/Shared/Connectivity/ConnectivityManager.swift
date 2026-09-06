@@ -94,8 +94,11 @@ final class ConnectivityManager: NSObject, WCSessionDelegate {
     // MARK: - Inbound routing
 
     nonisolated private func route(_ payload: [String: Any]) {
-        guard let message = ClockMessage(payload: payload) else { return }
+        // Extract Sendable Data on the WCSession queue; decode ClockMessage on
+        // the MainActor where its Decodable conformance is isolated.
+        guard let data = payload[ClockMessage.payloadKey] as? Data else { return }
         Task { @MainActor [weak self] in
+            guard let message = try? JSONDecoder().decode(ClockMessage.self, from: data) else { return }
             self?.messageHandler?(message)
         }
     }

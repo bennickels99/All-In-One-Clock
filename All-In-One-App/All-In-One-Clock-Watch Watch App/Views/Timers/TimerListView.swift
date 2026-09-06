@@ -6,15 +6,21 @@ struct TimerListView: View {
 
     var body: some View {
         List {
-            ForEach(store.timers) { timer in
-                TimerRow(timer: timer)
-            }
-            .onDelete { offsets in
-                // Collect IDs before mutating — cancel() removes elements in-place,
-                // making later index lookups hit wrong elements.
-                let ids = offsets.map { store.timers[$0].id }
-                for id in ids {
-                    WatchAlarmBridge.shared.cancel(id: id, store: store)
+            if store.timers.isEmpty {
+                Label("No timers", systemImage: "timer")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .listRowBackground(Color.clear)
+            } else {
+                ForEach(store.timers) { timer in
+                    TimerRow(timer: timer)
+                }
+                .onDelete { offsets in
+                    let ids = offsets.map { store.timers[$0].id }
+                    for id in ids {
+                        WatchAlarmBridge.shared.cancel(id: id, store: store)
+                    }
                 }
             }
 

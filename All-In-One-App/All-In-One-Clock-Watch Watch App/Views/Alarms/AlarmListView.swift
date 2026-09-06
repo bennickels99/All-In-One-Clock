@@ -6,15 +6,21 @@ struct AlarmListView: View {
 
     var body: some View {
         List {
-            ForEach(store.alarms) { alarm in
-                AlarmRow(alarm: alarm)
-            }
-            .onDelete { offsets in
-                // Collect IDs before mutating — cancel() removes elements in-place,
-                // making later index lookups hit wrong elements.
-                let ids = offsets.map { store.alarms[$0].id }
-                for id in ids {
-                    WatchAlarmBridge.shared.cancel(id: id, store: store)
+            if store.alarms.isEmpty {
+                Label("No alarms", systemImage: "alarm")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .listRowBackground(Color.clear)
+            } else {
+                ForEach(store.alarms) { alarm in
+                    AlarmRow(alarm: alarm)
+                }
+                .onDelete { offsets in
+                    let ids = offsets.map { store.alarms[$0].id }
+                    for id in ids {
+                        WatchAlarmBridge.shared.cancel(id: id, store: store)
+                    }
                 }
             }
 

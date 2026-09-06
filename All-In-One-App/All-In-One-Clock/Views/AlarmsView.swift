@@ -17,10 +17,8 @@ struct AlarmsView: View {
                     AlarmRow(alarm: alarm)
                 }
                 .onDelete { offsets in
-                    for index in offsets {
-                        let alarm = coordinator.alarms[index]
-                        try? coordinator.cancel(id: alarm.id)
-                    }
+                    let ids = offsets.map { coordinator.alarms[$0].id }
+                    for id in ids { try? coordinator.cancel(id: id) }
                 }
             }
             .navigationTitle("Alarms")
