@@ -10,8 +10,11 @@ struct AlarmListView: View {
                 AlarmRow(alarm: alarm)
             }
             .onDelete { offsets in
-                for index in offsets {
-                    WatchAlarmBridge.shared.cancel(id: store.alarms[index].id, store: store)
+                // Collect IDs before mutating — cancel() removes elements in-place,
+                // making later index lookups hit wrong elements.
+                let ids = offsets.map { store.alarms[$0].id }
+                for id in ids {
+                    WatchAlarmBridge.shared.cancel(id: id, store: store)
                 }
             }
 

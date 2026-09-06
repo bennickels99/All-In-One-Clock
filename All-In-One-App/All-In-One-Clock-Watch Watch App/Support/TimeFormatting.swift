@@ -49,14 +49,24 @@ func nextAlarmLabel(from alarms: [AlarmItem]) -> String {
                 ? alarmMinutes - nowMinutes
                 : 1440 - nowMinutes + alarmMinutes
         } else {
-            // Find the soonest matching weekday
+            // Find the soonest upcoming occurrence across all matching weekdays.
+            // Scanning 0..<8 ensures we always find at least one hit (the same
+            // weekday one week from today at worst). We break on the first day
+            // with a future candidate; if today's occurrence already passed we
+            // record next week's occurrence and keep scanning for an earlier day
+            // later this week.
             var best = Int.max
             for dayOffset in 0..<8 {
                 let weekday = ((todayWeekday - 1 + dayOffset) % 7) + 1
                 guard alarm.weekdays.contains(weekday) else { continue }
                 let candidate = dayOffset * 1440 + alarmMinutes - nowMinutes
-                best = min(best, candidate > 0 ? candidate : candidate + 1440)
-                break
+                if candidate > 0 {
+                    best = min(best, candidate)
+                    break // dayOffsets are ascending; this is the earliest future hit
+                }
+                // Today's occurrence already passed — next occurrence is 7 days away.
+                best = min(best, candidate + 7 * 1440)
+                // Don't break: a later day this week might be sooner than next week.
             }
             minutesUntil = best
         }

@@ -20,8 +20,11 @@ final class WatchAlarmBridge {
         // Optimistic update so the UI responds immediately
         store.alarms.removeAll { $0.id == alarm.id }
         store.alarms.append(alarm)
+        // Snapshot reachability once so send() and the fallback decision use the
+        // same state — avoids a TOCTOU where reachability changes between the two.
+        let reachable = ConnectivityManager.shared.isReachable
         ConnectivityManager.shared.send(.scheduleAlarm(alarm))
-        if !ConnectivityManager.shared.isReachable {
+        if !reachable {
             await scheduleFallback(for: alarm)
         }
     }
@@ -29,8 +32,9 @@ final class WatchAlarmBridge {
     func scheduleTimer(_ timer: CountdownTimer, store: ClockStore) async {
         store.timers.removeAll { $0.id == timer.id }
         store.timers.append(timer)
+        let reachable = ConnectivityManager.shared.isReachable
         ConnectivityManager.shared.send(.scheduleTimer(timer))
-        if !ConnectivityManager.shared.isReachable {
+        if !reachable {
             await scheduleFallback(for: timer)
         }
     }
