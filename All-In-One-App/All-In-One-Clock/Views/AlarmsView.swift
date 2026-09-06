@@ -71,10 +71,11 @@ private struct AlarmRow: View {
     }
 
     private var timeString: String {
-        let h = alarm.hour, m = alarm.minute
-        let ampm = h < 12 ? "AM" : "PM"
-        let displayHour = h % 12 == 0 ? 12 : h % 12
-        return String(format: "%d:%02d %@", displayHour, m, ampm)
+        var comps = DateComponents()
+        comps.hour = alarm.hour
+        comps.minute = alarm.minute
+        let date = Calendar.current.date(from: comps) ?? Date()
+        return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)
     }
 
     private var weekdaySummary: String {

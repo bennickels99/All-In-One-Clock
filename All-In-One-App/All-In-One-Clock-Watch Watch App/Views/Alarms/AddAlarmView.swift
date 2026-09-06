@@ -8,6 +8,7 @@ struct AddAlarmView: View {
     @State private var minute = Calendar.current.component(.minute, from: .now)
     @State private var selectedWeekdays: Set<Int> = []
     @State private var label = ""
+    @State private var isScheduling = false
 
     private let weekdayAbbreviations = ["S", "M", "T", "W", "T", "F", "S"]
 
@@ -60,6 +61,8 @@ struct AddAlarmView: View {
                 }
 
                 Button("Add Alarm") {
+                    guard !isScheduling else { return }
+                    isScheduling = true
                     let alarm = AlarmItem(
                         hour: hour,
                         minute: minute,
@@ -71,6 +74,7 @@ struct AddAlarmView: View {
                         dismiss()
                     }
                 }
+                .disabled(isScheduling)
             }
             .navigationTitle("New Alarm")
         }

@@ -8,6 +8,7 @@ struct AddTimerView: View {
     @State private var minutes = 5
     @State private var seconds = 0
     @State private var label = ""
+    @State private var isScheduling = false
 
     private var duration: TimeInterval {
         TimeInterval(hours * 3600 + minutes * 60 + seconds)
@@ -40,13 +41,15 @@ struct AddTimerView: View {
                     TextField("Label (optional)", text: $label)
                 }
                 Button("Start Timer") {
+                    guard !isScheduling else { return }
+                    isScheduling = true
                     Task {
                         let timer = CountdownTimer(label: label, duration: duration)
                         await WatchAlarmBridge.shared.scheduleTimer(timer, store: store)
                         dismiss()
                     }
                 }
-                .disabled(duration <= 0)
+                .disabled(duration <= 0 || isScheduling)
             }
             .navigationTitle("New Timer")
         }

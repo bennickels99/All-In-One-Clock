@@ -77,7 +77,14 @@ func nextAlarmLabel(from alarms: [AlarmItem]) -> String {
     }
 
     guard let alarm = soonestAlarm else { return "None" }
-    let ampm = alarm.hour < 12 ? "AM" : "PM"
-    let h = alarm.hour % 12 == 0 ? 12 : alarm.hour % 12
-    return String(format: "%d:%02d %@", h, alarm.minute, ampm)
+    return formattedAlarmTime(hour: alarm.hour, minute: alarm.minute)
+}
+
+/// Formats an alarm hour/minute as a locale-aware time string (respects 12/24h setting).
+func formattedAlarmTime(hour: Int, minute: Int) -> String {
+    var comps = DateComponents()
+    comps.hour = hour
+    comps.minute = minute
+    let date = Calendar.current.date(from: comps) ?? Date()
+    return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)
 }

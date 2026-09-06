@@ -55,7 +55,10 @@ final class AlarmKitCoordinator {
         let config = AlarmManager.AlarmConfiguration.alarm(schedule: schedule, attributes: attrs)
         _ = try await AlarmManager.shared.schedule(id: alarm.id, configuration: config)
 
-        if !alarms.contains(where: { $0.id == alarm.id }) {
+        // Upsert: update if already present (e.g. re-enabling) so isEnabled stays current.
+        if let index = alarms.firstIndex(where: { $0.id == alarm.id }) {
+            alarms[index] = alarm
+        } else {
             alarms.append(alarm)
         }
         saveState()
@@ -67,7 +70,9 @@ final class AlarmKitCoordinator {
         let config = AlarmManager.AlarmConfiguration.timer(duration: timer.duration, attributes: attrs)
         _ = try await AlarmManager.shared.schedule(id: timer.id, configuration: config)
 
-        if !timers.contains(where: { $0.id == timer.id }) {
+        if let index = timers.firstIndex(where: { $0.id == timer.id }) {
+            timers[index] = timer
+        } else {
             timers.append(timer)
         }
         saveState()
@@ -77,11 +82,13 @@ final class AlarmKitCoordinator {
     // MARK: - Cancel
 
     func cancel(id: UUID) throws {
-        try AlarmManager.shared.stop(id: id)
+        // Remove from arrays first so the UI responds immediately even if
+        // AlarmKit.stop() throws (e.g. the alarm already fired).
         alarms.removeAll { $0.id == id }
         timers.removeAll { $0.id == id }
         saveState()
         pushStateToWatch()
+        try? AlarmManager.shared.stop(id: id)
     }
 
     // MARK: - Toggle alarm enabled
@@ -93,9 +100,9 @@ final class AlarmKitCoordinator {
         if enabled {
             try await scheduleAlarm(updated)
         } else {
-            // Stop first — only update the array if AlarmKit accepts it, so the
-            // UI never shows "disabled" for an alarm that is still active.
-            try AlarmManager.shared.stop(id: alarm.id)
+            // Best-effort stop — use try? so a throw (e.g. already fired) doesn't
+            // block the UI from reflecting the disabled state.
+            try? AlarmManager.shared.stop(id: alarm.id)
             alarms[index] = updated
             saveState()
             pushStateToWatch()
@@ -120,10 +127,11 @@ final class AlarmKitCoordinator {
         authorizationState = AlarmManager.shared.authorizationState
         for await activeAlarms in AlarmManager.shared.alarmUpdates {
             let activeIDs = Set(activeAlarms.map(\.id))
-            // Remove fired one-shot timers
+            // Remove fired one-shot timers (disabled timers never exist; all are active)
             timers.removeAll { !activeIDs.contains($0.id) }
-            // Remove fired one-shot alarms (repeating stay scheduled)
-            alarms.removeAll { !$0.repeats && !activeIDs.contains($0.id) }
+            // Only auto-remove one-shot alarms that are ENABLED but no longer in AlarmKit
+            // (i.e. they fired). Disabled alarms are intentionally stopped — keep them.
+            alarms.removeAll { $0.isEnabled && !$0.repeats && !activeIDs.contains($0.id) }
             saveState()
             pushStateToWatch()
         }

@@ -41,9 +41,7 @@ private struct AlarmRow: View {
     let alarm: AlarmItem
 
     private var timeLabel: String {
-        let ampm = alarm.hour < 12 ? "AM" : "PM"
-        let h = alarm.hour % 12 == 0 ? 12 : alarm.hour % 12
-        return String(format: "%d:%02d %@", h, alarm.minute, ampm)
+        formattedAlarmTime(hour: alarm.hour, minute: alarm.minute)
     }
 
     private var repeatLabel: String {

@@ -74,7 +74,21 @@ final class ConnectivityManager: NSObject, WCSessionDelegate {
         _ session: WCSession,
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: Error?
-    ) {}
+    ) {
+#if os(watchOS)
+        // On cold start the phone may have pushed state while the watch was
+        // suspended. Read receivedApplicationContext so the watch doesn't show
+        // empty lists until the next live push.
+        if !session.receivedApplicationContext.isEmpty {
+            route(session.receivedApplicationContext)
+        }
+        // Seed the initial reachability indicator; sessionReachabilityDidChange
+        // is only called on subsequent changes, not on activation.
+        Task { @MainActor [weak self] in
+            self?.reachabilityHandler?(session.isReachable)
+        }
+#endif
+    }
 
 #if os(iOS)
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
