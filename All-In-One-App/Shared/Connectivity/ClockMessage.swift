@@ -47,7 +47,9 @@ extension ClockMessage {
 
     /// Reconstructs a message from a received WatchConnectivity payload.
     /// Returns `nil` if the payload does not contain a clock message.
-    init?(payload: [String: Any]) {
+    /// Marked nonisolated because this is pure JSON decoding on a Sendable value
+    /// type — it is safe to call from any actor, including WCSession's background queue.
+    nonisolated init?(payload: [String: Any]) {
         guard let data = payload[ClockMessage.payloadKey] as? Data,
               let message = try? JSONDecoder().decode(ClockMessage.self, from: data) else {
             return nil
