@@ -91,14 +91,16 @@ final class AlarmKitCoordinator {
         guard let index = alarms.firstIndex(where: { $0.id == alarm.id }) else { return }
         var updated = alarm
         updated.isEnabled = enabled
-        alarms[index] = updated
         if enabled {
             try await scheduleAlarm(updated)
         } else {
+            // Stop first — only update the array if AlarmKit accepts it, so the
+            // UI never shows "disabled" for an alarm that is still active.
             try AlarmManager.shared.stop(id: alarm.id)
+            alarms[index] = updated
+            saveState()
+            pushStateToWatch()
         }
-        saveState()
-        pushStateToWatch()
     }
 
     // MARK: - World clock (local)
@@ -133,7 +135,14 @@ final class AlarmKitCoordinator {
     func pushStateToWatch() {
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
-        guard session.isPaired, session.isWatchAppInstalled else { return }
+        // isPaired / isWatchAppInstalled are only reliable after the session is
+        // activated. Before Phase 4 wires ConnectivityManager, the session is
+        // inactive and these properties return false — so this guard safely
+        // no-ops rather than pushing stale/empty context. Phase 4 activation
+        // makes the push live.
+        guard session.activationState == .activated,
+              session.isPaired,
+              session.isWatchAppInstalled else { return }
         let state = ClockState(alarms: alarms, timers: timers)
         guard let payload = try? ClockMessage.stateSync(state).encodedPayload() else { return }
         try? session.updateApplicationContext(payload)

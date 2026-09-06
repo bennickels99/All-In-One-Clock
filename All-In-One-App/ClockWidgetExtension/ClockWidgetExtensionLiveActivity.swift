@@ -104,7 +104,8 @@ private struct AlarmCountdownView: View {
                 .foregroundStyle(ClockAlarmMetadata.tint)
         case .paused(let p):
             let remaining = p.totalCountdownDuration - p.previouslyElapsedDuration
-            Text(Duration.seconds(remaining), format: .time(pattern: .minuteSecond))
+            // Use hourMinuteSecond so durations over 59m59s show the hour component.
+            Text(Duration.seconds(remaining), format: .time(pattern: .hourMinuteSecond))
                 .foregroundStyle(.secondary)
         @unknown default:
             EmptyView()
