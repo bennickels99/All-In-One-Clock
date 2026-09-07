@@ -64,7 +64,7 @@ final class AlarmKitCoordinator {
             ? .never
             : .weekly(localeWeekdays(from: alarm.weekdays))
         let schedule = Alarm.Schedule.relative(Alarm.Schedule.Relative(time: time, repeats: recurrence))
-        var snoozeIntent = SnoozeAlarmIntent()
+        let snoozeIntent = SnoozeAlarmIntent()
         snoozeIntent.alarmID = alarm.id.uuidString
         let config = AlarmManager.AlarmConfiguration(
             countdownDuration: Alarm.CountdownDuration(

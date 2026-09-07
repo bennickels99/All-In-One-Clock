@@ -44,14 +44,13 @@ extension ClockAlarmMetadata {
             ? (kind == .timer ? "Timer" : "Alarm")
             : LocalizedStringResource(stringLiteral: label)
 
-        let alert = AlarmPresentation.Alert(title: title)
-
         // Timers count down from a duration so they need countdown + paused Live
         // Activity presentations. Scheduled alarms just fire at a fixed time —
         // including countdown here would cause AlarmKit to start a Live Activity
         // immediately on schedule (potentially hours early) and fail with error 0.
         let presentation: AlarmPresentation
         if kind == .timer {
+            let alert = AlarmPresentation.Alert(title: title)
             let countdown = AlarmPresentation.Countdown(
                 title: title,
                 pauseButton: AlarmButton(
@@ -70,6 +69,14 @@ extension ClockAlarmMetadata {
             )
             presentation = AlarmPresentation(alert: alert, countdown: countdown, paused: paused)
         } else {
+            // secondaryButton + .countdown behavior renders the Snooze button on the
+            // alert screen. The snooze duration was set via Alarm.CountdownDuration.postAlert
+            // at schedule time; .countdown tells the system to restart that countdown.
+            let alert = AlarmPresentation.Alert(
+                title: title,
+                secondaryButton: AlarmButton(text: "Snooze", textColor: .white, systemImageName: "zzz"),
+                secondaryButtonBehavior: .countdown
+            )
             presentation = AlarmPresentation(alert: alert)
         }
 
