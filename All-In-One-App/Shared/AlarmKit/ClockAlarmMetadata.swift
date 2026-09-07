@@ -46,29 +46,32 @@ extension ClockAlarmMetadata {
 
         let alert = AlarmPresentation.Alert(title: title)
 
-        let countdown = AlarmPresentation.Countdown(
-            title: title,
-            pauseButton: AlarmButton(
-                text: "Pause",
-                textColor: .white,
-                systemImageName: "pause.fill"
+        // Timers count down from a duration so they need countdown + paused Live
+        // Activity presentations. Scheduled alarms just fire at a fixed time —
+        // including countdown here would cause AlarmKit to start a Live Activity
+        // immediately on schedule (potentially hours early) and fail with error 0.
+        let presentation: AlarmPresentation
+        if kind == .timer {
+            let countdown = AlarmPresentation.Countdown(
+                title: title,
+                pauseButton: AlarmButton(
+                    text: "Pause",
+                    textColor: .white,
+                    systemImageName: "pause.fill"
+                )
             )
-        )
-
-        let paused = AlarmPresentation.Paused(
-            title: "Paused",
-            resumeButton: AlarmButton(
-                text: "Resume",
-                textColor: .white,
-                systemImageName: "play.fill"
+            let paused = AlarmPresentation.Paused(
+                title: "Paused",
+                resumeButton: AlarmButton(
+                    text: "Resume",
+                    textColor: .white,
+                    systemImageName: "play.fill"
+                )
             )
-        )
-
-        let presentation = AlarmPresentation(
-            alert: alert,
-            countdown: countdown,
-            paused: paused
-        )
+            presentation = AlarmPresentation(alert: alert, countdown: countdown, paused: paused)
+        } else {
+            presentation = AlarmPresentation(alert: alert)
+        }
 
         return AlarmAttributes(
             presentation: presentation,

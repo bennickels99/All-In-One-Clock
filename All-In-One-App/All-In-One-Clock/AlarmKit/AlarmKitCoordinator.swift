@@ -43,16 +43,38 @@ final class AlarmKitCoordinator {
         }
     }
 
+    // MARK: - Authorization updates
+
+    func observeAuthorizationUpdates() async {
+        for await state in AlarmManager.shared.authorizationUpdates {
+            authorizationState = state
+        }
+    }
+
     // MARK: - Schedule
 
     func scheduleAlarm(_ alarm: AlarmItem) async throws {
+        if authorizationState == .notDetermined { await requestAuthorization() }
+        guard authorizationState == .authorized else {
+            throw alarmPermissionError()
+        }
         let attrs = ClockAlarmMetadata.attributes(label: alarm.label, kind: .alarm)
         let time = Alarm.Schedule.Relative.Time(hour: alarm.hour, minute: alarm.minute)
         let recurrence: Alarm.Schedule.Relative.Recurrence = alarm.weekdays.isEmpty
             ? .never
             : .weekly(localeWeekdays(from: alarm.weekdays))
         let schedule = Alarm.Schedule.relative(Alarm.Schedule.Relative(time: time, repeats: recurrence))
-        let config = AlarmManager.AlarmConfiguration.alarm(schedule: schedule, attributes: attrs)
+        var snoozeIntent = SnoozeAlarmIntent()
+        snoozeIntent.alarmID = alarm.id.uuidString
+        let config = AlarmManager.AlarmConfiguration(
+            countdownDuration: Alarm.CountdownDuration(
+                preAlert: nil,
+                postAlert: TimeInterval(alarm.snoozeDuration * 60)
+            ),
+            schedule: schedule,
+            attributes: attrs,
+            secondaryIntent: snoozeIntent
+        )
         _ = try await AlarmManager.shared.schedule(id: alarm.id, configuration: config)
 
         // Upsert: update if already present (e.g. re-enabling) so isEnabled stays current.
@@ -66,6 +88,10 @@ final class AlarmKitCoordinator {
     }
 
     func scheduleTimer(_ timer: CountdownTimer) async throws {
+        if authorizationState == .notDetermined { await requestAuthorization() }
+        guard authorizationState == .authorized else {
+            throw alarmPermissionError()
+        }
         let attrs = ClockAlarmMetadata.attributes(label: timer.label, kind: .timer)
         let config = AlarmManager.AlarmConfiguration.timer(duration: timer.duration, attributes: attrs)
         _ = try await AlarmManager.shared.schedule(id: timer.id, configuration: config)
@@ -129,9 +155,13 @@ final class AlarmKitCoordinator {
             let activeIDs = Set(activeAlarms.map(\.id))
             // Remove fired one-shot timers (disabled timers never exist; all are active)
             timers.removeAll { !activeIDs.contains($0.id) }
-            // Only auto-remove one-shot alarms that are ENABLED but no longer in AlarmKit
-            // (i.e. they fired). Disabled alarms are intentionally stopped — keep them.
-            alarms.removeAll { $0.isEnabled && !$0.repeats && !activeIDs.contains($0.id) }
+            // Fired one-shots stay in the list for history — just mark them disabled
+            // so the user can see they elapsed and optionally re-enable or delete.
+            for index in alarms.indices {
+                if alarms[index].isEnabled && !alarms[index].repeats && !activeIDs.contains(alarms[index].id) {
+                    alarms[index].isEnabled = false
+                }
+            }
             saveState()
             pushStateToWatch()
         }
@@ -152,6 +182,16 @@ final class AlarmKitCoordinator {
             5: .thursday, 6: .friday, 7: .saturday
         ]
         return calendarWeekdays.sorted().compactMap { map[$0] }
+    }
+
+    // MARK: - Helpers
+
+    private func alarmPermissionError() -> NSError {
+        let message = authorizationState == .denied
+            ? "Alarm permission was denied. Go to Settings > All-In-One Clock to enable it."
+            : "Alarm permission is required. Please authorize in Settings."
+        return NSError(domain: "com.allinone.clock", code: 1,
+                       userInfo: [NSLocalizedDescriptionKey: message])
     }
 
     // MARK: - Persistence

@@ -3,11 +3,14 @@
 //  All-In-One-Clock
 //
 
+import AlarmKit
 import SwiftUI
 
 struct TimersView: View {
     @Environment(AlarmKitCoordinator.self) private var coordinator
+    @Environment(\.openURL) private var openURL
     @State private var showingAdd = false
+    @State private var showingAuthAlert = false
 
     var body: some View {
         NavigationStack {
@@ -23,7 +26,9 @@ struct TimersView: View {
             .navigationTitle("Timers")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button { showingAdd = true } label: { Image(systemName: "plus") }
+                    Button {
+                        Task { await checkAuthThenAdd() }
+                    } label: { Image(systemName: "plus") }
                 }
             }
             .sheet(isPresented: $showingAdd) {
@@ -34,6 +39,25 @@ struct TimersView: View {
                     ContentUnavailableView("No Timers", systemImage: "timer", description: Text("Tap + to add a timer."))
                 }
             }
+            .alert("Alarm Permission Required", isPresented: $showingAuthAlert) {
+                Button("Open Settings") {
+                    if let url = URL(string: "app-settings:") { openURL(url) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("All-In-One Clock needs permission to schedule timers. Enable it in Settings.")
+            }
+        }
+    }
+
+    private func checkAuthThenAdd() async {
+        if coordinator.authorizationState == .notDetermined {
+            await coordinator.requestAuthorization()
+        }
+        if coordinator.authorizationState == .authorized {
+            showingAdd = true
+        } else {
+            showingAuthAlert = true
         }
     }
 }

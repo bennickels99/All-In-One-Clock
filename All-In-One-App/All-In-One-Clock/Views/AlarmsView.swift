@@ -3,12 +3,40 @@
 //  All-In-One-Clock
 //
 
+import AlarmKit
 import SwiftUI
+
+// MARK: - Repeat Preset
+
+private enum RepeatPreset: String, CaseIterable, Identifiable {
+    case never, weekdays, weekends, custom
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .never:    return "Never"
+        case .weekdays: return "Weekdays"
+        case .weekends: return "Weekends"
+        case .custom:   return "Custom"
+        }
+    }
+    // nil means user controls the day set; non-nil values are fixed presets.
+    var resolvedWeekdays: Set<Int>? {
+        switch self {
+        case .never:    return []
+        case .weekdays: return [2, 3, 4, 5, 6]  // Mon–Fri
+        case .weekends: return [1, 7]            // Sun, Sat
+        case .custom:   return nil
+        }
+    }
+}
+
+// MARK: - Alarms List
 
 struct AlarmsView: View {
     @Environment(AlarmKitCoordinator.self) private var coordinator
+    @Environment(\.openURL) private var openURL
     @State private var showingAdd = false
-    @State private var errorMessage: String?
+    @State private var showingAuthAlert = false
 
     var body: some View {
         NavigationStack {
@@ -24,7 +52,9 @@ struct AlarmsView: View {
             .navigationTitle("Alarms")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button { showingAdd = true } label: { Image(systemName: "plus") }
+                    Button {
+                        Task { await checkAuthThenAdd() }
+                    } label: { Image(systemName: "plus") }
                 }
             }
             .sheet(isPresented: $showingAdd) {
@@ -32,12 +62,34 @@ struct AlarmsView: View {
             }
             .overlay {
                 if coordinator.alarms.isEmpty {
-                    ContentUnavailableView("No Alarms", systemImage: "alarm", description: Text("Tap + to add an alarm."))
+                    ContentUnavailableView("No Alarms", systemImage: "alarm",
+                                          description: Text("Tap + to add an alarm."))
                 }
+            }
+            .alert("Alarm Permission Required", isPresented: $showingAuthAlert) {
+                Button("Open Settings") {
+                    if let url = URL(string: "app-settings:") { openURL(url) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("All-In-One Clock needs permission to schedule alarms. Enable it in Settings.")
             }
         }
     }
+
+    private func checkAuthThenAdd() async {
+        if coordinator.authorizationState == .notDetermined {
+            await coordinator.requestAuthorization()
+        }
+        if coordinator.authorizationState == .authorized {
+            showingAdd = true
+        } else {
+            showingAuthAlert = true
+        }
+    }
 }
+
+// MARK: - Alarm Row
 
 private struct AlarmRow: View {
     @Environment(AlarmKitCoordinator.self) private var coordinator
@@ -57,6 +109,10 @@ private struct AlarmRow: View {
                     Text(weekdaySummary)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                } else if !alarm.isEnabled {
+                    Text("Elapsed")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
             Spacer()
@@ -68,6 +124,7 @@ private struct AlarmRow: View {
             ))
             .labelsHidden()
         }
+        .opacity(alarm.isEnabled ? 1 : 0.65)
     }
 
     private var timeString: String {
@@ -79,10 +136,15 @@ private struct AlarmRow: View {
     }
 
     private var weekdaySummary: String {
-        let names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-        return alarm.weekdays.sorted().compactMap { idx in
-            idx >= 1 && idx <= 7 ? names[idx - 1] : nil
-        }.joined(separator: " ")
+        switch alarm.weekdays {
+        case [2, 3, 4, 5, 6]: return "Weekdays"
+        case [1, 7]:           return "Weekends"
+        default:
+            let names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+            return alarm.weekdays.sorted().compactMap { idx in
+                idx >= 1 && idx <= 7 ? names[idx - 1] : nil
+            }.joined(separator: " ")
+        }
     }
 }
 
@@ -95,7 +157,9 @@ struct AddAlarmView: View {
     @State private var hour = Calendar.current.component(.hour, from: Date())
     @State private var minute = Calendar.current.component(.minute, from: Date())
     @State private var label = ""
-    @State private var selectedWeekdays: Set<Int> = []
+    @State private var repeatPreset: RepeatPreset = .never
+    @State private var customWeekdays: Set<Int> = []
+    @State private var snoozeDuration = 8
     @State private var isScheduling = false
     @State private var errorMessage: String?
 
@@ -132,18 +196,38 @@ struct AddAlarmView: View {
                 }
 
                 Section("Repeat") {
-                    HStack(spacing: 8) {
-                        ForEach(1...7, id: \.self) { day in
-                            let selected = selectedWeekdays.contains(day)
-                            Button(weekdayNames[day - 1]) {
-                                if selected { selectedWeekdays.remove(day) }
-                                else { selectedWeekdays.insert(day) }
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(selected ? .orange : .secondary)
-                            .font(.caption)
+                    Picker("Preset", selection: $repeatPreset) {
+                        ForEach(RepeatPreset.allCases) { preset in
+                            Text(preset.displayName).tag(preset)
                         }
                     }
+                    .pickerStyle(.segmented)
+
+                    if repeatPreset == .custom {
+                        HStack(spacing: 8) {
+                            ForEach(1...7, id: \.self) { day in
+                                let selected = customWeekdays.contains(day)
+                                Button(weekdayNames[day - 1]) {
+                                    if selected { customWeekdays.remove(day) }
+                                    else { customWeekdays.insert(day) }
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(selected ? .orange : .secondary)
+                                .font(.caption)
+                            }
+                        }
+                    }
+                }
+
+                Section("Snooze") {
+                    Picker("Duration", selection: $snoozeDuration) {
+                        Text("5 min").tag(5)
+                        Text("8 min").tag(8)
+                        Text("10 min").tag(10)
+                        Text("15 min").tag(15)
+                        Text("20 min").tag(20)
+                    }
+                    .pickerStyle(.menu)
                 }
 
                 if let error = errorMessage {
@@ -168,7 +252,14 @@ struct AddAlarmView: View {
 
     private func scheduleAlarm() {
         isScheduling = true
-        let alarm = AlarmItem(hour: hour, minute: minute, weekdays: selectedWeekdays, label: label)
+        let weekdays = repeatPreset.resolvedWeekdays ?? customWeekdays
+        let alarm = AlarmItem(
+            hour: hour,
+            minute: minute,
+            weekdays: weekdays,
+            label: label,
+            snoozeDuration: snoozeDuration
+        )
         Task {
             do {
                 try await coordinator.scheduleAlarm(alarm)

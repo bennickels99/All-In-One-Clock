@@ -138,3 +138,57 @@ Shared/                          (membership: iOS + Watch + Widget)
     keeps them alive.
 - **Persistence:** relaunch both apps → alarms/timers restored (AlarmKit = source of truth on phone;
   watch stopwatch restores via date math).
+
+---
+
+## Phase 7: Alarm History, Snooze, and Repeat Presets
+
+### Context
+Alarms currently vanish from the list after they fire (one-shots are deleted in `startObserving()`). There is no snooze, no per-alarm snooze duration, and the repeat UI shows raw day toggles with no preset shortcuts. This phase adds alarm history persistence, configurable snooze, and "Weekdays / Weekends / Custom" repeat presets across iOS and Watch.
+
+### Files to modify
+
+**`Shared/Models/AlarmItem.swift`**
+Add `snoozeDuration: Int` (minutes, default 8). Because Codable conformance is synthesised, add explicit `CodingKeys` + hand-written `init(from:)` using `decodeIfPresent` with `?? 8` fallback for backward compat. Add `snoozeDuration` to the existing memberwise `init`.
+
+**`All-In-One-Clock/AlarmKit/AlarmKitCoordinator.swift`** — two changes:
+- *History*: in `startObserving()`, replace `alarms.removeAll { $0.isEnabled && !$0.repeats && !activeIDs.contains($0.id) }` with a loop that sets `alarms[i].isEnabled = false` for those entries instead of deleting them.
+- *Snooze*: in `scheduleAlarm()`, replace `.alarm(schedule:attributes:)` with the full `AlarmManager.AlarmConfiguration.init(countdownDuration: Alarm.CountdownDuration(preAlert: nil, postAlert: TimeInterval(alarm.snoozeDuration * 60)), schedule: schedule, attributes: attrs, secondaryIntent: snoozeIntent)`. `preAlert: nil` prevents the pre-fire Live Activity that caused error 0.
+
+**New `All-In-One-Clock/SnoozeAlarmIntent.swift`** (iOS app target, via `XcodeWrite`):
+```swift
+struct SnoozeAlarmIntent: AppIntent, LiveActivityIntent {
+    static var title: LocalizedStringResource { "Snooze Alarm" }
+    @Parameter(title: "Alarm ID") var alarmID: String
+    func perform() async throws -> some IntentResult {
+        guard let id = UUID(uuidString: alarmID) else { return .result() }
+        try? AlarmManager.shared.countdown(id: id)   // no duration param; uses postAlert from schedule time
+        return .result()
+    }
+}
+```
+
+**`All-In-One-Clock/Views/AlarmsView.swift`** — AddAlarmView:
+- Add `Section("Snooze")` with a `.menu` Picker for 5/8/10/15/20 min (default 8).
+- Replace flat weekday toggles with a `RepeatPreset` segmented picker (Never / Weekdays / Weekends / Custom); Custom shows individual day buttons. `RepeatPreset.resolvedWeekdays` returns `[]`, `{2,3,4,5,6}`, `{1,7}`, or `nil` (custom) respectively.
+- Pass both `snoozeDuration` and resolved weekdays to `AlarmItem` init.
+- Update `AlarmRow.weekdaySummary` to show "Weekdays"/"Weekends" shorthand; add "Elapsed" caption for `!alarm.isEnabled && !alarm.repeats`.
+
+**`All-In-One-Clock-Watch Watch App/Views/Alarms/AddAlarmView.swift`**
+Mirror iOS changes: same `RepeatPreset` enum, same `snoozeDuration` picker (watchOS default navigation-link style).
+
+**`All-In-One-Clock-Watch Watch App/Views/Alarms/AlarmListView.swift`**
+- Update `repeatLabel` with "Weekdays"/"Weekends" shorthand.
+- Dim disabled rows with `.opacity(alarm.isEnabled ? 1 : 0.45)`.
+
+### Risks
+- **Error 0 regression**: `preAlert: nil` avoids the pre-fire Live Activity that caused error 0. `AlarmPresentation` for alarms retains alert-only (no countdown), so no Live Activity starts at schedule time.
+- **Snooze Live Activity**: Without `AlarmPresentation.Countdown` in alarm attributes, the snooze countdown won't show a Dynamic Island countdown — alarm silently snoozes. Acceptable for v1.
+
+### Verification
+1. Build iOS app — no compile errors.
+2. Schedule alarm 1–2 min out → fires → tap Snooze → re-fires after configured duration.
+3. Alarm fires without snooze → stays in list with toggle OFF and "Elapsed" label.
+4. Toggle back on → reschedules; swipe-delete → removes entirely.
+5. "Weekdays" preset → `alarm.weekdays == {2,3,4,5,6}`; "Custom" Mon+Wed → correct days stored.
+6. Watch shows disabled history entries dimmed; syncs correctly via stateSync.

@@ -80,11 +80,21 @@
 			);
 			target = 5C292E8A304C9D3300146D2F /* All-In-One-Clock-Watch Watch App */;
 		};
+		5CC9059A304F12300099C4FB /* Exceptions for "All-In-One-Clock" folder in "All-In-One-Clock" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 5C292E7B304C9CB300146D2F /* All-In-One-Clock */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		5C292E7D304C9CB300146D2F /* All-In-One-Clock */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				5CC9059A304F12300099C4FB /* Exceptions for "All-In-One-Clock" folder in "All-In-One-Clock" target */,
+			);
 			path = "All-In-One-Clock";
 			sourceTree = "<group>";
 		};
@@ -474,6 +484,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "All-In-One-Clock/Info.plist";
+				INFOPLIST_KEY_NSAlarmKitUsuageDescription = "";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -507,6 +519,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "All-In-One-Clock/Info.plist";
+				INFOPLIST_KEY_NSAlarmKitUsuageDescription = "";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

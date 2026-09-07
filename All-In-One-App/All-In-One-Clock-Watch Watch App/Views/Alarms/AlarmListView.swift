@@ -45,11 +45,16 @@ private struct AlarmRow: View {
     }
 
     private var repeatLabel: String {
-        guard !alarm.weekdays.isEmpty else { return "Once" }
-        let names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-        return alarm.weekdays.sorted()
-            .compactMap { $0 >= 1 && $0 <= 7 ? names[$0 - 1] : nil }
-            .joined(separator: " ")
+        switch alarm.weekdays {
+        case [2, 3, 4, 5, 6]: return "Weekdays"
+        case [1, 7]:           return "Weekends"
+        case []:               return alarm.isEnabled ? "Once" : "Elapsed"
+        default:
+            let names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+            return alarm.weekdays.sorted()
+                .compactMap { $0 >= 1 && $0 <= 7 ? names[$0 - 1] : nil }
+                .joined(separator: " ")
+        }
     }
 
     var body: some View {
@@ -65,5 +70,6 @@ private struct AlarmRow: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
+        .opacity(alarm.isEnabled ? 1 : 0.45)
     }
 }

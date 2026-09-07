@@ -31,6 +31,7 @@ struct All_In_One_ClockApp: App {
                         }
                     }
                     await coordinator.requestAuthorization()
+                    Task { await coordinator.observeAuthorizationUpdates() }
                     await coordinator.startObserving()
                 }
         }
