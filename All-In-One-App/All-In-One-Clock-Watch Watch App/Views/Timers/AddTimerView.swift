@@ -8,7 +8,7 @@ struct AddTimerView: View {
     @State private var minutes = 5
     @State private var seconds = 0
     @State private var label = ""
-    @State private var selectedSound: AlarmSound = .default
+    @State private var selectedSound: AlarmSound = .classicAlarm
     @State private var isScheduling = false
 
     private var duration: TimeInterval {

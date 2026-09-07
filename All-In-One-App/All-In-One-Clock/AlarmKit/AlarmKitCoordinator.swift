@@ -179,8 +179,7 @@ final class AlarmKitCoordinator {
     // MARK: - Sound helper
 
     private func alarmSound(from soundName: String?) -> AlertConfiguration.AlertSound {
-        guard let name = soundName else { return .default }
-        return .named(name)
+        return .named(soundName ?? AlarmSound.classicAlarm.filename)
     }
 
     // MARK: - Weekday conversion (Calendar 1=Sun…7=Sat → Locale.Weekday)

@@ -10,7 +10,7 @@ struct AddAlarmView: View {
     @State private var repeatPreset: RepeatPreset = .never
     @State private var customWeekdays: Set<Int> = []
     @State private var snoozeDuration = 8
-    @State private var selectedSound: AlarmSound = .default
+    @State private var selectedSound: AlarmSound = .classicAlarm
     @State private var isScheduling = false
 
     private let weekdayAbbreviations = ["S", "M", "T", "W", "T", "F", "S"]
