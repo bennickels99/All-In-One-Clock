@@ -8,6 +8,7 @@ struct AddTimerView: View {
     @State private var minutes = 5
     @State private var seconds = 0
     @State private var label = ""
+    @State private var selectedSound: AlarmSound = .default
     @State private var isScheduling = false
 
     private var duration: TimeInterval {
@@ -40,11 +41,18 @@ struct AddTimerView: View {
                 Section {
                     TextField("Label (optional)", text: $label)
                 }
+                Section("Sound") {
+                    Picker("Sound", selection: $selectedSound) {
+                        ForEach(AlarmSound.all) { sound in
+                            Text(sound.displayName).tag(sound)
+                        }
+                    }
+                }
                 Button("Start Timer") {
                     guard !isScheduling else { return }
                     isScheduling = true
                     Task {
-                        let timer = CountdownTimer(label: label, duration: duration)
+                        let timer = CountdownTimer(label: label, duration: duration, soundName: selectedSound.filename)
                         await WatchAlarmBridge.shared.scheduleTimer(timer, store: store)
                         dismiss()
                     }

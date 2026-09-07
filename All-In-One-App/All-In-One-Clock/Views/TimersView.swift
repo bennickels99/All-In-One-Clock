@@ -108,6 +108,7 @@ struct AddTimerView: View {
     @State private var minutes = 0
     @State private var seconds = 0
     @State private var label = ""
+    @State private var selectedSound: AlarmSound = .default
     @State private var isScheduling = false
     @State private var errorMessage: String?
 
@@ -145,6 +146,15 @@ struct AddTimerView: View {
                     TextField("Optional", text: $label)
                 }
 
+                Section("Sound") {
+                    Picker("Sound", selection: $selectedSound) {
+                        ForEach(AlarmSound.all) { sound in
+                            Text(sound.displayName).tag(sound)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
                 if let error = errorMessage {
                     Section {
                         Text(error).foregroundStyle(.red).font(.caption)
@@ -167,7 +177,7 @@ struct AddTimerView: View {
 
     private func scheduleTimer() {
         isScheduling = true
-        let timer = CountdownTimer(label: label, duration: duration)
+        let timer = CountdownTimer(label: label, duration: duration, soundName: selectedSound.filename)
         Task {
             do {
                 try await coordinator.scheduleTimer(timer)

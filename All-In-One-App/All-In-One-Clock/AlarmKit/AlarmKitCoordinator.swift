@@ -7,6 +7,7 @@
 //  watch via WatchConnectivity (wired up fully in Phase 4).
 //
 
+import ActivityKit
 import AlarmKit
 import SwiftUI
 
@@ -73,7 +74,8 @@ final class AlarmKitCoordinator {
             ),
             schedule: schedule,
             attributes: attrs,
-            secondaryIntent: snoozeIntent
+            secondaryIntent: snoozeIntent,
+            sound: alarmSound(from: alarm.soundName)
         )
         _ = try await AlarmManager.shared.schedule(id: alarm.id, configuration: config)
 
@@ -93,7 +95,7 @@ final class AlarmKitCoordinator {
             throw alarmPermissionError()
         }
         let attrs = ClockAlarmMetadata.attributes(label: timer.label, kind: .timer)
-        let config = AlarmManager.AlarmConfiguration.timer(duration: timer.duration, attributes: attrs)
+        let config = AlarmManager.AlarmConfiguration.timer(duration: timer.duration, attributes: attrs, sound: alarmSound(from: timer.soundName))
         _ = try await AlarmManager.shared.schedule(id: timer.id, configuration: config)
 
         if let index = timers.firstIndex(where: { $0.id == timer.id }) {
@@ -172,6 +174,13 @@ final class AlarmKitCoordinator {
     func pushStateToWatch() {
         let state = ClockState(alarms: alarms, timers: timers)
         ConnectivityManager.shared.updateContext(.stateSync(state))
+    }
+
+    // MARK: - Sound helper
+
+    private func alarmSound(from soundName: String?) -> AlertConfiguration.AlertSound {
+        guard let name = soundName else { return .default }
+        return .named(name)
     }
 
     // MARK: - Weekday conversion (Calendar 1=Sun…7=Sat → Locale.Weekday)

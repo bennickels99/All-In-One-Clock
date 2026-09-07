@@ -160,6 +160,7 @@ struct AddAlarmView: View {
     @State private var repeatPreset: RepeatPreset = .never
     @State private var customWeekdays: Set<Int> = []
     @State private var snoozeDuration = 8
+    @State private var selectedSound: AlarmSound = .default
     @State private var isScheduling = false
     @State private var errorMessage: String?
 
@@ -221,11 +222,19 @@ struct AddAlarmView: View {
 
                 Section("Snooze") {
                     Picker("Duration", selection: $snoozeDuration) {
-                        Text("5 min").tag(5)
-                        Text("8 min").tag(8)
-                        Text("10 min").tag(10)
-                        Text("15 min").tag(15)
-                        Text("20 min").tag(20)
+                        ForEach(1...20, id: \.self) { min in
+                            Text("\(min) min").tag(min)
+                        }
+                    }
+                    .pickerStyle(.wheel)
+                    .frame(height: 100)
+                }
+
+                Section("Sound") {
+                    Picker("Sound", selection: $selectedSound) {
+                        ForEach(AlarmSound.all) { sound in
+                            Text(sound.displayName).tag(sound)
+                        }
                     }
                     .pickerStyle(.menu)
                 }
@@ -258,7 +267,8 @@ struct AddAlarmView: View {
             minute: minute,
             weekdays: weekdays,
             label: label,
-            snoozeDuration: snoozeDuration
+            snoozeDuration: snoozeDuration,
+            soundName: selectedSound.filename
         )
         Task {
             do {
