@@ -2,16 +2,20 @@
 //  AlarmKitCoordinator.swift
 //  All-In-One-Clock
 //
-//  Source of truth for alarms and timers on the iPhone. On a physical device,
-//  schedules via AlarmKit and observes alarmUpdates. On simulator, falls back
-//  to UNUserNotificationCenter because AlarmKit's Springboard XPC communication
-//  is not available in the simulator and causes Springboard to crash at fire time.
+//  Source of truth for alarms and timers on the iPhone. Schedules via AlarmKit,
+//  observes alarmUpdates to keep the list current, and mirrors state to the
+//  watch via WatchConnectivity (wired up fully in Phase 4).
+//
+//  Simulator note: AlarmKit scheduling and the alert UI work on simulator, but
+//  the Live Activity XPC calls (countdown/paused presentations, snooze countdown)
+//  crash Springboard. ClockAlarmMetadata uses #if targetEnvironment(simulator) to
+//  strip those presentations out, and the alarmUpdates loop is skipped on simulator
+//  since the AlarmKit daemon doesn't run there.
 //
 
 import ActivityKit
 import AlarmKit
 import SwiftUI
-import UserNotifications
 
 @MainActor
 @Observable
@@ -39,31 +43,17 @@ final class AlarmKitCoordinator {
     // MARK: - Authorization
 
     func requestAuthorization() async {
-#if targetEnvironment(simulator)
-        do {
-            let granted = try await UNUserNotificationCenter.current()
-                .requestAuthorization(options: [.alert, .sound, .badge])
-            authorizationState = granted ? .authorized : .denied
-        } catch {
-            // stay .notDetermined
-        }
-#else
         do {
             authorizationState = try await AlarmManager.shared.requestAuthorization()
         } catch {
             // Authorization errors are non-fatal; state stays .notDetermined
         }
-#endif
     }
 
     func observeAuthorizationUpdates() async {
-#if targetEnvironment(simulator)
-        // No AlarmKit authorization stream on simulator; nothing to observe.
-#else
         for await state in AlarmManager.shared.authorizationUpdates {
             authorizationState = state
         }
-#endif
     }
 
     // MARK: - Schedule
@@ -73,10 +63,6 @@ final class AlarmKitCoordinator {
         guard authorizationState == .authorized else {
             throw alarmPermissionError()
         }
-
-#if targetEnvironment(simulator)
-        try await scheduleAlarmNotification(alarm)
-#else
         let attrs = ClockAlarmMetadata.attributes(label: alarm.label, kind: .alarm)
         let time = Alarm.Schedule.Relative.Time(hour: alarm.hour, minute: alarm.minute)
         let recurrence: Alarm.Schedule.Relative.Recurrence = alarm.weekdays.isEmpty
@@ -96,7 +82,6 @@ final class AlarmKitCoordinator {
             sound: alarmSound(from: alarm.soundName)
         )
         _ = try await AlarmManager.shared.schedule(id: alarm.id, configuration: config)
-#endif
 
         if let index = alarms.firstIndex(where: { $0.id == alarm.id }) {
             alarms[index] = alarm
@@ -112,10 +97,6 @@ final class AlarmKitCoordinator {
         guard authorizationState == .authorized else {
             throw alarmPermissionError()
         }
-
-#if targetEnvironment(simulator)
-        try await scheduleTimerNotification(timer)
-#else
         let attrs = ClockAlarmMetadata.attributes(label: timer.label, kind: .timer)
         let config = AlarmManager.AlarmConfiguration.timer(
             duration: timer.duration,
@@ -123,7 +104,6 @@ final class AlarmKitCoordinator {
             sound: alarmSound(from: timer.soundName)
         )
         _ = try await AlarmManager.shared.schedule(id: timer.id, configuration: config)
-#endif
 
         if let index = timers.firstIndex(where: { $0.id == timer.id }) {
             timers[index] = timer
@@ -141,11 +121,7 @@ final class AlarmKitCoordinator {
         timers.removeAll { $0.id == id }
         saveState()
         pushStateToWatch()
-#if targetEnvironment(simulator)
-        removePendingNotifications(for: id)
-#else
         try? AlarmManager.shared.stop(id: id)
-#endif
     }
 
     // MARK: - Toggle alarm enabled
@@ -157,11 +133,7 @@ final class AlarmKitCoordinator {
         if enabled {
             try await scheduleAlarm(updated)
         } else {
-#if targetEnvironment(simulator)
-            removePendingNotifications(for: alarm.id)
-#else
             try? AlarmManager.shared.stop(id: alarm.id)
-#endif
             alarms[index] = updated
             saveState()
             pushStateToWatch()
@@ -183,20 +155,12 @@ final class AlarmKitCoordinator {
     // MARK: - Observe AlarmKit updates
 
     func startObserving() async {
-#if targetEnvironment(simulator)
-        // AlarmKit daemon not available on simulator — check UNUserNotificationCenter
-        // auth state so the UI reflects correct permission status.
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        switch settings.authorizationStatus {
-        case .authorized, .provisional, .ephemeral:
-            authorizationState = .authorized
-        case .denied:
-            authorizationState = .denied
-        default:
-            break
-        }
-#else
         authorizationState = AlarmManager.shared.authorizationState
+#if targetEnvironment(simulator)
+        // The AlarmKit daemon doesn't run on simulator so alarmUpdates never
+        // produces values; skipping avoids a suspended task holding the .task modifier.
+        return
+#else
         for await activeAlarms in AlarmManager.shared.alarmUpdates {
             let activeIDs = Set(activeAlarms.map(\.id))
             // Fired one-shots are removed from AlarmKit — remove timers, mark alarms disabled.
@@ -219,51 +183,7 @@ final class AlarmKitCoordinator {
         ConnectivityManager.shared.updateContext(.stateSync(state))
     }
 
-    // MARK: - Simulator: UNUserNotificationCenter fallback
-
-#if targetEnvironment(simulator)
-    private func scheduleAlarmNotification(_ alarm: AlarmItem) async throws {
-        let content = UNMutableNotificationContent()
-        content.title = alarm.label.isEmpty ? "Alarm" : alarm.label
-        content.body = "Your alarm is going off"
-        content.sound = .defaultCritical
-        let center = UNUserNotificationCenter.current()
-        var comps = DateComponents()
-        comps.hour = alarm.hour
-        comps.minute = alarm.minute
-        if alarm.weekdays.isEmpty {
-            let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
-            let request = UNNotificationRequest(identifier: alarm.id.uuidString, content: content, trigger: trigger)
-            try await center.add(request)
-        } else {
-            for weekday in alarm.weekdays {
-                var dayComps = comps
-                dayComps.weekday = weekday
-                let trigger = UNCalendarNotificationTrigger(dateMatching: dayComps, repeats: true)
-                let id = "\(alarm.id.uuidString)-\(weekday)"
-                let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-                try await center.add(request)
-            }
-        }
-    }
-
-    private func scheduleTimerNotification(_ timer: CountdownTimer) async throws {
-        let content = UNMutableNotificationContent()
-        content.title = timer.label.isEmpty ? "Timer" : timer.label
-        content.body = "Your timer has finished"
-        content.sound = .defaultCritical
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timer.duration, repeats: false)
-        let request = UNNotificationRequest(identifier: timer.id.uuidString, content: content, trigger: trigger)
-        try await UNUserNotificationCenter.current().add(request)
-    }
-
-    private func removePendingNotifications(for id: UUID) {
-        let ids = [id.uuidString] + (1...7).map { "\(id.uuidString)-\($0)" }
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
-    }
-#endif
-
-    // MARK: - Sound helper (device only)
+    // MARK: - Sound helper
 
     private func alarmSound(from soundName: String?) -> AlertConfiguration.AlertSound {
         return .named(soundName ?? AlarmSound.classicAlarm.filename)

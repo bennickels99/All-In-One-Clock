@@ -50,6 +50,12 @@ extension ClockAlarmMetadata {
         // immediately on schedule (potentially hours early) and fail with error 0.
         let presentation: AlarmPresentation
         if kind == .timer {
+#if targetEnvironment(simulator)
+            // Live Activity countdown/paused XPC communication crashes Springboard
+            // on simulator — use alert-only presentation.
+            let alert = AlarmPresentation.Alert(title: title)
+            presentation = AlarmPresentation(alert: alert)
+#else
             let alert = AlarmPresentation.Alert(title: title)
             let countdown = AlarmPresentation.Countdown(
                 title: title,
@@ -68,7 +74,15 @@ extension ClockAlarmMetadata {
                 )
             )
             presentation = AlarmPresentation(alert: alert, countdown: countdown, paused: paused)
+#endif
         } else {
+#if targetEnvironment(simulator)
+            // .countdown secondary behavior starts a Live Activity snooze countdown
+            // after the alert is dismissed — that XPC call crashes Springboard on
+            // simulator. Use a plain alert without snooze countdown.
+            let alert = AlarmPresentation.Alert(title: title)
+            presentation = AlarmPresentation(alert: alert)
+#else
             // secondaryButton + .countdown behavior renders the Snooze button on the
             // alert screen. The snooze duration was set via Alarm.CountdownDuration.postAlert
             // at schedule time; .countdown tells the system to restart that countdown.
@@ -78,6 +92,7 @@ extension ClockAlarmMetadata {
                 secondaryButtonBehavior: .countdown
             )
             presentation = AlarmPresentation(alert: alert)
+#endif
         }
 
         return AlarmAttributes(
