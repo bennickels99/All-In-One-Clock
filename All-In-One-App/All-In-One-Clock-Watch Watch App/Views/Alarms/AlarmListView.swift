@@ -3,6 +3,7 @@ import SwiftUI
 struct AlarmListView: View {
     @Environment(ClockStore.self) private var store
     @State private var showingAdd = false
+    @State private var editingAlarm: AlarmItem?
 
     var body: some View {
         List {
@@ -14,7 +15,9 @@ struct AlarmListView: View {
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(store.alarms) { alarm in
-                    AlarmRow(alarm: alarm)
+                    AlarmRow(alarm: alarm) {
+                        editingAlarm = alarm
+                    }
                 }
                 .onDelete { offsets in
                     let ids = offsets.map { store.alarms[$0].id }
@@ -34,11 +37,15 @@ struct AlarmListView: View {
         .sheet(isPresented: $showingAdd) {
             AddAlarmView()
         }
+        .sheet(item: $editingAlarm) { alarm in
+            AddAlarmView(existingAlarm: alarm)
+        }
     }
 }
 
 private struct AlarmRow: View {
     let alarm: AlarmItem
+    let onEdit: () -> Void
 
     private var timeLabel: String {
         formattedAlarmTime(hour: alarm.hour, minute: alarm.minute)
@@ -46,9 +53,10 @@ private struct AlarmRow: View {
 
     private var repeatLabel: String {
         switch alarm.weekdays {
-        case [2, 3, 4, 5, 6]: return "Weekdays"
-        case [1, 7]:           return "Weekends"
-        case []:               return alarm.isEnabled ? "Once" : "Elapsed"
+        case [1, 2, 3, 4, 5, 6, 7]: return "Daily"
+        case [2, 3, 4, 5, 6]:       return "Weekdays"
+        case [1, 7]:                 return "Weekends"
+        case []:                     return "Once"
         default:
             let names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
             return alarm.weekdays.sorted()
@@ -58,18 +66,22 @@ private struct AlarmRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(timeLabel)
-                .font(.headline)
-            if !alarm.label.isEmpty {
-                Text(alarm.label)
-                    .font(.caption)
+        Button(action: onEdit) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(timeLabel)
+                    .font(.headline)
+                if !alarm.label.isEmpty {
+                    Text(alarm.label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text(repeatLabel)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            Text(repeatLabel)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            .foregroundStyle(.primary)
         }
+        .buttonStyle(.plain)
         .opacity(alarm.isEnabled ? 1 : 0.45)
     }
 }

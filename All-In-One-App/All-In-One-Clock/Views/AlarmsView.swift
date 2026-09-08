@@ -9,11 +9,12 @@ import SwiftUI
 // MARK: - Repeat Preset
 
 private enum RepeatPreset: String, CaseIterable, Identifiable {
-    case never, weekdays, weekends, custom
+    case never, daily, weekdays, weekends, custom
     var id: String { rawValue }
     var displayName: String {
         switch self {
         case .never:    return "Never"
+        case .daily:    return "Daily"
         case .weekdays: return "Weekdays"
         case .weekends: return "Weekends"
         case .custom:   return "Custom"
@@ -23,10 +24,18 @@ private enum RepeatPreset: String, CaseIterable, Identifiable {
     var resolvedWeekdays: Set<Int>? {
         switch self {
         case .never:    return []
+        case .daily:    return [1, 2, 3, 4, 5, 6, 7]
         case .weekdays: return [2, 3, 4, 5, 6]  // Mon–Fri
         case .weekends: return [1, 7]            // Sun, Sat
         case .custom:   return nil
         }
+    }
+    static func from(weekdays: Set<Int>) -> RepeatPreset {
+        if weekdays.isEmpty            { return .never }
+        if weekdays == [1,2,3,4,5,6,7] { return .daily }
+        if weekdays == [2,3,4,5,6]     { return .weekdays }
+        if weekdays == [1,7]           { return .weekends }
+        return .custom
     }
 }
 
@@ -36,13 +45,16 @@ struct AlarmsView: View {
     @Environment(AlarmKitCoordinator.self) private var coordinator
     @Environment(\.openURL) private var openURL
     @State private var showingAdd = false
+    @State private var editingAlarm: AlarmItem?
     @State private var showingAuthAlert = false
 
     var body: some View {
         NavigationStack {
             List {
                 ForEach(coordinator.alarms) { alarm in
-                    AlarmRow(alarm: alarm)
+                    AlarmRow(alarm: alarm) {
+                        editingAlarm = alarm
+                    }
                 }
                 .onDelete { offsets in
                     let ids = offsets.map { coordinator.alarms[$0].id }
@@ -59,6 +71,9 @@ struct AlarmsView: View {
             }
             .sheet(isPresented: $showingAdd) {
                 AddAlarmView()
+            }
+            .sheet(item: $editingAlarm) { alarm in
+                AddAlarmView(existingAlarm: alarm)
             }
             .overlay {
                 if coordinator.alarms.isEmpty {
@@ -94,27 +109,28 @@ struct AlarmsView: View {
 private struct AlarmRow: View {
     @Environment(AlarmKitCoordinator.self) private var coordinator
     let alarm: AlarmItem
+    let onEdit: () -> Void
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading) {
-                Text(timeString)
-                    .font(.title2.monospacedDigit())
-                if !alarm.label.isEmpty {
-                    Text(alarm.label)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            Button(action: onEdit) {
+                VStack(alignment: .leading) {
+                    Text(timeString)
+                        .font(.title2.monospacedDigit())
+                    if !alarm.label.isEmpty {
+                        Text(alarm.label)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    if alarm.repeats {
+                        Text(weekdaySummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                if alarm.repeats {
-                    Text(weekdaySummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if !alarm.isEnabled {
-                    Text("Elapsed")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+                .foregroundStyle(.primary)
             }
+            .buttonStyle(.plain)
             Spacer()
             Toggle("", isOn: Binding(
                 get: { alarm.isEnabled },
@@ -137,8 +153,9 @@ private struct AlarmRow: View {
 
     private var weekdaySummary: String {
         switch alarm.weekdays {
-        case [2, 3, 4, 5, 6]: return "Weekdays"
-        case [1, 7]:           return "Weekends"
+        case [1, 2, 3, 4, 5, 6, 7]: return "Daily"
+        case [2, 3, 4, 5, 6]:       return "Weekdays"
+        case [1, 7]:                 return "Weekends"
         default:
             let names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
             return alarm.weekdays.sorted().compactMap { idx in
@@ -148,23 +165,48 @@ private struct AlarmRow: View {
     }
 }
 
-// MARK: - Add Alarm Sheet
+// MARK: - Add / Edit Alarm Sheet
 
 struct AddAlarmView: View {
     @Environment(AlarmKitCoordinator.self) private var coordinator
     @Environment(\.dismiss) private var dismiss
 
-    @State private var hour = Calendar.current.component(.hour, from: Date())
-    @State private var minute = Calendar.current.component(.minute, from: Date())
-    @State private var label = ""
-    @State private var repeatPreset: RepeatPreset = .never
-    @State private var customWeekdays: Set<Int> = []
-    @State private var snoozeDuration = 8
-    @State private var selectedSound: AlarmSound = .classicAlarm
+    let existingAlarm: AlarmItem?
+
+    @State private var hour: Int
+    @State private var minute: Int
+    @State private var label: String
+    @State private var repeatPreset: RepeatPreset
+    @State private var customWeekdays: Set<Int>
+    @State private var snoozeDuration: Int
+    @State private var selectedSound: AlarmSound
     @State private var isScheduling = false
     @State private var errorMessage: String?
 
     private let weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+    init(existingAlarm: AlarmItem? = nil) {
+        self.existingAlarm = existingAlarm
+        if let alarm = existingAlarm {
+            _hour           = State(initialValue: alarm.hour)
+            _minute         = State(initialValue: alarm.minute)
+            _label          = State(initialValue: alarm.label)
+            _snoozeDuration = State(initialValue: alarm.snoozeDuration)
+            let preset      = RepeatPreset.from(weekdays: alarm.weekdays)
+            _repeatPreset   = State(initialValue: preset)
+            _customWeekdays = State(initialValue: preset == .custom ? alarm.weekdays : [])
+            let sound       = AlarmSound.all.first { $0.filename == alarm.soundName } ?? .classicAlarm
+            _selectedSound  = State(initialValue: sound)
+        } else {
+            _hour           = State(initialValue: Calendar.current.component(.hour, from: Date()))
+            _minute         = State(initialValue: Calendar.current.component(.minute, from: Date()))
+            _label          = State(initialValue: "")
+            _repeatPreset   = State(initialValue: .never)
+            _customWeekdays = State(initialValue: [])
+            _snoozeDuration = State(initialValue: 8)
+            _selectedSound  = State(initialValue: .classicAlarm)
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -197,12 +239,12 @@ struct AddAlarmView: View {
                 }
 
                 Section("Repeat") {
-                    Picker("Preset", selection: $repeatPreset) {
+                    Picker("Repeat", selection: $repeatPreset) {
                         ForEach(RepeatPreset.allCases) { preset in
                             Text(preset.displayName).tag(preset)
                         }
                     }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
 
                     if repeatPreset == .custom {
                         HStack(spacing: 8) {
@@ -245,14 +287,14 @@ struct AddAlarmView: View {
                     }
                 }
             }
-            .navigationTitle("New Alarm")
+            .navigationTitle(existingAlarm == nil ? "New Alarm" : "Edit Alarm")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") { scheduleAlarm() }
+                    Button(existingAlarm == nil ? "Add" : "Save") { scheduleAlarm() }
                         .disabled(isScheduling)
                 }
             }
@@ -263,6 +305,7 @@ struct AddAlarmView: View {
         isScheduling = true
         let weekdays = repeatPreset.resolvedWeekdays ?? customWeekdays
         let alarm = AlarmItem(
+            id: existingAlarm?.id ?? UUID(),
             hour: hour,
             minute: minute,
             weekdays: weekdays,
