@@ -63,7 +63,7 @@ final class AlarmKitCoordinator {
         guard authorizationState == .authorized else {
             throw alarmPermissionError()
         }
-        let attrs = ClockAlarmMetadata.attributes(label: alarm.label, kind: .alarm)
+        let attrs = ClockAlarmMetadata.attributes(label: alarm.label, kind: .alarm, itemID: alarm.id)
         let time = Alarm.Schedule.Relative.Time(hour: alarm.hour, minute: alarm.minute)
         let recurrence: Alarm.Schedule.Relative.Recurrence = alarm.weekdays.isEmpty
             ? .never
@@ -97,9 +97,17 @@ final class AlarmKitCoordinator {
         guard authorizationState == .authorized else {
             throw alarmPermissionError()
         }
-        let attrs = ClockAlarmMetadata.attributes(label: timer.label, kind: .timer)
+        let activeDuration = timer.stages?[timer.currentStageIndex] ?? timer.duration
+        let stageLabel: String
+        if let stages = timer.stages, stages.count > 1 {
+            let prefix = timer.label.isEmpty ? "Timer" : timer.label
+            stageLabel = "\(prefix) — Stage \(timer.currentStageIndex + 1) of \(stages.count)"
+        } else {
+            stageLabel = timer.label
+        }
+        let attrs = ClockAlarmMetadata.attributes(label: stageLabel, kind: .timer, itemID: timer.id)
         let config = AlarmManager.AlarmConfiguration.timer(
-            duration: timer.duration,
+            duration: activeDuration,
             attributes: attrs,
             sound: alarmSound(from: timer.soundName)
         )
@@ -163,8 +171,21 @@ final class AlarmKitCoordinator {
 #else
         for await activeAlarms in AlarmManager.shared.alarmUpdates {
             let activeIDs = Set(activeAlarms.map(\.id))
-            // Fired one-shots are removed from AlarmKit — remove timers, mark alarms disabled.
-            timers.removeAll { !activeIDs.contains($0.id) }
+
+            // Handle completed timers: advance multi-stage, remove simple.
+            let completedTimers = timers.filter { !activeIDs.contains($0.id) }
+            for completed in completedTimers {
+                if let stages = completed.stages, completed.currentStageIndex + 1 < stages.count {
+                    var next = completed
+                    next.currentStageIndex += 1
+                    next.createdAt = .now
+                    Task { try? await scheduleTimer(next) }
+                } else {
+                    timers.removeAll { $0.id == completed.id }
+                }
+            }
+
+            // Mark fired one-shot alarms as disabled rather than deleting them.
             for index in alarms.indices {
                 if alarms[index].isEnabled && !alarms[index].repeats && !activeIDs.contains(alarms[index].id) {
                     alarms[index].isEnabled = false

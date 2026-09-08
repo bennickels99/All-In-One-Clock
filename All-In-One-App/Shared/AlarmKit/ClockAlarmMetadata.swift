@@ -22,10 +22,25 @@ struct ClockAlarmMetadata: AlarmMetadata {
 
     var label: String
     var kind: Kind
+    /// The UUID of the originating AlarmItem or CountdownTimer — used by widget
+    /// action intents (pause/resume/cancel) to identify the correct item.
+    var itemID: UUID
 
-    init(label: String, kind: Kind) {
+    init(label: String, kind: Kind, itemID: UUID) {
         self.label = label
         self.kind = kind
+        self.itemID = itemID
+    }
+
+    // MARK: - Codable (backward compat: itemID missing in older encoded instances)
+
+    private enum CodingKeys: String, CodingKey { case label, kind, itemID }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        label  = try c.decode(String.self, forKey: .label)
+        kind   = try c.decode(Kind.self,   forKey: .kind)
+        itemID = try c.decodeIfPresent(UUID.self, forKey: .itemID) ?? UUID()
     }
 }
 
@@ -38,7 +53,8 @@ extension ClockAlarmMetadata {
     /// the Live Activity can show a running / paused countdown.
     static func attributes(
         label: String,
-        kind: Kind
+        kind: Kind,
+        itemID: UUID
     ) -> AlarmAttributes<ClockAlarmMetadata> {
         let title: LocalizedStringResource = label.isEmpty
             ? (kind == .timer ? "Timer" : "Alarm")
@@ -82,7 +98,7 @@ extension ClockAlarmMetadata {
 
         return AlarmAttributes(
             presentation: presentation,
-            metadata: ClockAlarmMetadata(label: label, kind: kind),
+            metadata: ClockAlarmMetadata(label: label, kind: kind, itemID: itemID),
             tintColor: tint
         )
     }

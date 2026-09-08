@@ -192,3 +192,186 @@ Mirror iOS changes: same `RepeatPreset` enum, same `snoozeDuration` picker (watc
 4. Toggle back on → reschedules; swipe-delete → removes entirely.
 5. "Weekdays" preset → `alarm.weekdays == {2,3,4,5,6}`; "Custom" Mon+Wed → correct days stored.
 6. Watch shows disabled history entries dimmed; syncs correctly via stateSync.
+
+---
+
+## Phase 8: Timer Feature Expansion
+
+### Context
+The timer screen needs six improvements: quick-start presets at the top, an interactive Live Activity (pause/cancel controls on lock screen and expanded Dynamic Island), a better post-completion display, timer editing and instant-restart from the row, and a new multi-stage chaining mode where stages each show a full alert before the next begins.
+
+---
+
+### 1. Timer Presets
+
+**Where:** Top of `TimersView`, above the list — a horizontal `ScrollView` of four tappable chips.
+
+```swift
+ScrollView(.horizontal, showsIndicators: false) {
+    HStack {
+        ForEach([60, 300, 600, 1200], id: \.self) { secs in
+            Button(presetLabel(secs)) { Task { await schedulePreset(secs) } }
+                .buttonStyle(.bordered).tint(.orange)
+        }
+    }.padding(.horizontal)
+}
+```
+
+`schedulePreset()` runs the same auth pre-check already used by the `+` button, then calls `coordinator.scheduleTimer(CountdownTimer(label: "", duration: TimeInterval(secs)))`.
+
+---
+
+### 2. Model: Add `itemID` to `ClockAlarmMetadata`
+
+**File:** `Shared/AlarmKit/ClockAlarmMetadata.swift`
+
+Add `var itemID: UUID` to `ClockAlarmMetadata` so the widget can pass the correct ID to action intents. Update `attributes(label:kind:itemID:)` and its two callers in `AlarmKitCoordinator.scheduleAlarm()` and `scheduleTimer()`.
+
+---
+
+### 3. Live Activity Action Intents
+
+**File:** `ClockWidgetExtension/AppIntent.swift` (widget extension target only)
+
+Replace the stub `ConfigurationAppIntent` with three timer-control intents:
+
+```swift
+struct PauseTimerIntent: AppIntent {
+    @Parameter var timerID: String
+    func perform() async throws -> some IntentResult {
+        guard let id = UUID(uuidString: timerID) else { return .result() }
+        try? AlarmManager.shared.pause(id: id); return .result()
+    }
+}
+struct ResumeTimerIntent: AppIntent {
+    @Parameter var timerID: String
+    func perform() async throws -> some IntentResult {
+        guard let id = UUID(uuidString: timerID) else { return .result() }
+        try? AlarmManager.shared.resume(id: id); return .result()
+    }
+}
+struct CancelTimerIntent: AppIntent {
+    @Parameter var timerID: String
+    func perform() async throws -> some IntentResult {
+        guard let id = UUID(uuidString: timerID) else { return .result() }
+        try? AlarmManager.shared.stop(id: id); return .result()
+    }
+}
+```
+
+AlarmKit state propagates to the app via the existing `alarmUpdates` loop — no additional wiring needed.
+
+---
+
+### 4. Live Activity Layout
+
+**File:** `ClockWidgetExtension/ClockWidgetExtensionLiveActivity.swift`
+
+#### Lock Screen (`AlarmLockScreenView`)
+For timer kind, add pause/resume and cancel buttons to the right side:
+```
+[⏱]  Timer label          [⏸/▶]  [✕]
+     0:45 remaining
+```
+Use `Button(intent:)` — pause/resume toggled by `context.state.mode` (`.countdown` → show pause, `.paused` → show resume), cancel always shown. Alarm kind keeps the current read-only layout.
+
+#### Dynamic Island Expanded
+Add `.trailing` region with the pause/resume button (timer only). Add a small cancel button alongside the countdown in `.bottom`:
+```swift
+DynamicIslandExpandedRegion(.trailing) { /* pause/resume button */ }
+DynamicIslandExpandedRegion(.bottom) {
+    HStack { AlarmCountdownView(state:); Spacer(); /* cancel button */ }
+}
+```
+
+---
+
+### 5. Post-Completion Display
+
+**File:** `All-In-One-Clock/Views/TimersView.swift`
+
+In `TimerRow`, replace `Text("Finished")` with the formatted original duration. Add a private helper:
+```swift
+private func formatDuration(_ t: TimeInterval) -> String {
+    let h = Int(t) / 3600, m = Int(t) % 3600 / 60, s = Int(t) % 60
+    return h > 0 ? String(format: "%d:%02d:%02d", h, m, s)
+                 : String(format: "%d:%02d", m, s)
+}
+```
+
+---
+
+### 6. Timer Row: Restart Button + Edit Sheet
+
+**File:** `All-In-One-Clock/Views/TimersView.swift`
+
+Each `TimerRow` has two tap targets:
+- **Content area** (Button wrapping the VStack) → sets `editingTimer = timer` to open edit sheet
+- **Restart icon** (trailing Button) → calls `restartTimer(timer)`: schedules a new `CountdownTimer` with a fresh UUID and `createdAt = .now` but same `duration`, `label`, `soundName`
+
+`AddTimerView` gets `existingTimer: CountdownTimer?` and a custom `init` (same pattern as `AddAlarmView`). Pre-populate hours/minutes/seconds by decomposing `timer.duration`. Title = "Edit Timer"/"New Timer", confirm button = "Save"/"Start". Editing preserves the same `id` for upsert in the coordinator.
+
+---
+
+### 7. Multi-Stage Timers
+
+#### Model — `Shared/Models/CountdownTimer.swift`
+Add two backward-compat fields (use `decodeIfPresent` with defaults, same pattern already in this file):
+```swift
+var stages: [TimeInterval]?   // nil = simple; stage durations in order
+var currentStageIndex: Int    // 0-based; always 0 for simple timers
+```
+
+#### Scheduling — `AlarmKitCoordinator.scheduleTimer()`
+```swift
+let activeDuration = timer.stages?[timer.currentStageIndex] ?? timer.duration
+// label: if multi-stage, append "Stage N of M"
+```
+
+#### Auto-Advance — `AlarmKitCoordinator.startObserving()`
+When a multi-stage timer disappears from `activeIDs`, advance rather than remove:
+```swift
+if let stages = timer.stages, timer.currentStageIndex + 1 < stages.count {
+    var next = timer
+    next.currentStageIndex += 1
+    next.createdAt = .now
+    Task { try? await scheduleTimer(next) }
+} else {
+    timers.removeAll { $0.id == timer.id }
+}
+```
+> **Simulator note**: `alarmUpdates` is skipped on simulator (existing known limitation), so multi-stage auto-advance only works on device.
+
+#### UI — `AddTimerView`
+Below the duration picker, add:
+- `Toggle("Multi-stage", isOn: $isMultiStage)`
+- When on: `Stepper("Stages: \(stageCount)", value: $stageCount, in: 2...10)`
+- A per-stage H:M:S picker row for each index (labelled "Stage 1", "Stage 2", …)
+- State: `@State private var isMultiStage = false`, `@State private var stageCount = 2`, `@State private var stageDurations: [TimeInterval] = [300, 300]`
+- `stageCount` changes resize `stageDurations` (pad with 300s or trim from end)
+
+When scheduling: `CountdownTimer(label:, duration: stageDurations[0], soundName:, stages: stageDurations, currentStageIndex: 0)`.
+
+---
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `Shared/Models/CountdownTimer.swift` | Add `stages`, `currentStageIndex` with backward-compat Codable |
+| `Shared/AlarmKit/ClockAlarmMetadata.swift` | Add `itemID: UUID` |
+| `All-In-One-Clock/AlarmKit/AlarmKitCoordinator.swift` | Stage-aware `scheduleTimer`, auto-advance in `startObserving` |
+| `ClockWidgetExtension/AppIntent.swift` | Replace stub with Pause/Resume/Cancel intents |
+| `ClockWidgetExtension/ClockWidgetExtensionLiveActivity.swift` | Action buttons in lock screen + expanded Dynamic Island |
+| `All-In-One-Clock/Views/TimersView.swift` | Presets row, restart button, edit sheet, duration display |
+
+---
+
+### Verification
+1. Build — no errors
+2. **Presets**: Tap "5 min" chip → timer starts counting down immediately
+3. **Restart**: Tap ↺ on a finished timer → restarts with same duration
+4. **Edit**: Tap content area → edit sheet opens pre-filled; change duration → Save → reschedules
+5. **Post-completion**: Let a 1-min timer fire → row shows "1:00" not "Finished"
+6. **Live Activity** (device): Long-press Dynamic Island → pause and cancel buttons visible; pause works; cancel removes timer
+7. **Multi-stage** (device): Create 2-stage (1 min + 2 min) → stage 1 fires alert → dismiss → stage 2 immediately starts → stage 2 fires → timer removed

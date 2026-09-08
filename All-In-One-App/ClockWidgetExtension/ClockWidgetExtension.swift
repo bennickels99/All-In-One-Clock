@@ -2,87 +2,32 @@
 //  ClockWidgetExtension.swift
 //  ClockWidgetExtension
 //
-//  Created by Ben Nickels on 9/5/26.
+//  Placeholder home-screen widget (not yet implemented). The real widget
+//  surface is the AlarmKit Live Activity in ClockWidgetExtensionLiveActivity.swift.
 //
 
 import WidgetKit
 import SwiftUI
 
-struct Provider: AppIntentTimelineProvider {
-    func placeholder(in context: Context) -> SimpleEntry {
-        SimpleEntry(date: Date(), configuration: ConfigurationAppIntent())
+private struct ClockEntry: TimelineEntry { let date: Date }
+
+private struct ClockProvider: TimelineProvider {
+    func placeholder(in context: Context) -> ClockEntry { ClockEntry(date: .now) }
+    func getSnapshot(in context: Context, completion: @escaping (ClockEntry) -> Void) {
+        completion(ClockEntry(date: .now))
     }
-
-    func snapshot(for configuration: ConfigurationAppIntent, in context: Context) async -> SimpleEntry {
-        SimpleEntry(date: Date(), configuration: configuration)
-    }
-    
-    func timeline(for configuration: ConfigurationAppIntent, in context: Context) async -> Timeline<SimpleEntry> {
-        var entries: [SimpleEntry] = []
-
-        // Generate a timeline consisting of five entries an hour apart, starting from the current date.
-        let currentDate = Date()
-        for hourOffset in 0 ..< 5 {
-            let entryDate = Calendar.current.date(byAdding: .hour, value: hourOffset, to: currentDate)!
-            let entry = SimpleEntry(date: entryDate, configuration: configuration)
-            entries.append(entry)
-        }
-
-        return Timeline(entries: entries, policy: .atEnd)
-    }
-
-//    func relevances() async -> WidgetRelevances<ConfigurationAppIntent> {
-//        // Generate a list containing the contexts this widget is relevant in.
-//    }
-}
-
-struct SimpleEntry: TimelineEntry {
-    let date: Date
-    let configuration: ConfigurationAppIntent
-}
-
-struct ClockWidgetExtensionEntryView : View {
-    var entry: Provider.Entry
-
-    var body: some View {
-        VStack {
-            Text("Time:")
-            Text(entry.date, style: .time)
-
-            Text("Favorite Emoji:")
-            Text(entry.configuration.favoriteEmoji)
-        }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<ClockEntry>) -> Void) {
+        completion(Timeline(entries: [ClockEntry(date: .now)], policy: .never))
     }
 }
 
 struct ClockWidgetExtension: Widget {
-    let kind: String = "ClockWidgetExtension"
+    let kind = "ClockWidgetExtension"
 
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: kind, intent: ConfigurationAppIntent.self, provider: Provider()) { entry in
-            ClockWidgetExtensionEntryView(entry: entry)
+        StaticConfiguration(kind: kind, provider: ClockProvider()) { _ in
+            EmptyView()
                 .containerBackground(.fill.tertiary, for: .widget)
         }
     }
-}
-
-extension ConfigurationAppIntent {
-    fileprivate static var smiley: ConfigurationAppIntent {
-        let intent = ConfigurationAppIntent()
-        intent.favoriteEmoji = "😀"
-        return intent
-    }
-    
-    fileprivate static var starEyes: ConfigurationAppIntent {
-        let intent = ConfigurationAppIntent()
-        intent.favoriteEmoji = "🤩"
-        return intent
-    }
-}
-
-#Preview(as: .systemSmall) {
-    ClockWidgetExtension()
-} timeline: {
-    SimpleEntry(date: .now, configuration: .smiley)
-    SimpleEntry(date: .now, configuration: .starEyes)
 }
